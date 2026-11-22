@@ -1,0 +1,273 @@
+openapi: 3.0.3
+info:
+  title: SHB2－読み上げBOT 外部連携API
+  version: 1.0.0
+  description: |
+    Lumi などの外部のBOT・サービスから、SHB2－読み上げBOT に読み上げを依頼するAPIです。
+
+    ## 使い始める
+    1. サーバーの管理者が、Discord で `/external` を実行して「オン」を選びます。
+    2. 表示されたトークン(`shb2_...`)を、依頼する側(Lumi のダッシュボードの「読み上げ連携」)に貼り付けます。
+       トークンは **生成した直後の1回しか表示されません**。
+    3. 読み上げてほしいチャンネルで、VC に号機を参加させておきます(`/join` か `/autojoin`)。
+
+    ## 認証
+    ヘッダー `Authorization: Bearer <トークン>`。トークンは**サーバーごと**で、そのサーバーの読み上げだけを依頼できます
+    (リクエストに guild_id は不要です。入れても無視します)。
+    無効・不明・取り消し済みのトークンは、理由を区別せず、すべて同じ `401` です。
+
+    - `/external regenerate` で新しいトークンを発行すると、古いトークンはすぐに無効になります。
+    - `/external off` で、外部連携を止めてトークンを無効にします。
+
+    ## 制限
+    | 項目 | 上限 |
+    |---|---|
+    | リクエスト回数 | 1トークン(=1サーバー)あたり、1分に60回。超えると `429` と `Retry-After` |
+    | リクエストボディ | 64KB。超えると `413` |
+    | 認証の失敗 | 1分に10回/IP。超えるとそのIPを1分間 `429` (ブロック中は正しいトークンも通しません) |
+    | items | 1〜20件 |
+    | text | 1〜500文字 |
+
+    ## 読み上げの扱い
+    - 整形(URL・メンション・絵文字・ネタバレの置き換え、サーバー辞書、長文の切り詰め)は、通常の読み上げと同じです。
+      長文は、サーバーの上限(既定100文字)で切られます。
+    - 「BOTの発言は読み上げない」ルールは、このAPI経由には**適用されません**。
+    - 外部から来た文章は、読み上げのため VOICEVOX 公開API に送信されます。保存はしません。
+      ログにも本文は残さず、サーバーIDと件数だけを残します。
+
+    ## ベースURL
+    `https://shb2-bot.shishen575.com/api/v1`
+servers:
+  - url: https://shb2-bot.shishen575.com/api/v1
+security:
+  - bearerAuth: []
+tags:
+  - name: speak
+    description: 読み上げの依頼
+  - name: status
+    description: 状態の確認・接続テスト
+paths:
+  /speak:
+    post:
+      tags: [speak]
+      summary: 読み上げを依頼する
+      description: |
+        `channel_id` を「読み上げ対象」にしている号機に、`items` を順番どおりに読み上げさせます
+        (通常の読み上げと同じキューに入ります)。複数の号機が対象にしている場合は、1号機に近い方を使います。
+
+        回答の読み上げが終わるのを待たずに、キューに入れた時点で `200` を返します。
+
+        `Idempotency-Key` を付けると、同じキーの依頼は **10分間は無視**(前回と同じ応答を返す)します。再送で二重に読まれません。
+        キーはサーバーごとに分かれます。
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: 再送の防止用。同じキーの依頼を10分間は無視します (200文字まで)。
+          schema: { type: string, maxLength: 200 }
+          example: lumi-ogiri-20261112-0001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SpeakRequest' }
+            example:
+              channel_id: '1566794644342448199'
+              items:
+                - text: お題。猫が会議で言った一言は?
+                - text: ニャーン会議
+                  user_id: '222222222222222222'
+                  say_name: true
+              source: lumi:ogiri
+      responses:
+        '200':
+          description: キューに入れた (queued)、または、対象の号機がいない (no_session)
+          headers:
+            Idempotency-Replayed:
+              description: 同じ Idempotency-Key の再送だった場合だけ `true`
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpeakResponse' }
+              examples:
+                queued:
+                  summary: キューに入れた
+                  value: { status: queued, bot: 2, queued: 2 }
+                no_session:
+                  summary: そのチャンネルを読み上げ対象にしている号機がいない (エラーではありません。何もしなくてよい)
+                  value: { status: no_session }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /session:
+    get:
+      tags: [status]
+      summary: いま読み上げ中か
+      description: ダッシュボードに「読み上げ中」と表示するために使います。
+      parameters:
+        - name: channel_id
+          in: query
+          required: true
+          description: 確認するテキストチャンネルのID
+          schema: { type: string, pattern: '^\d{5,25}$' }
+      responses:
+        '200':
+          description: 状態
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionResponse' }
+              examples:
+                active: { value: { active: true, bot: 2, voice_channel_id: '555555555555555555' } }
+                inactive: { value: { active: false } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /health:
+    get:
+      tags: [status]
+      summary: 接続テスト
+      description: トークンを検証して、サーバー名を返します (ダッシュボードで、貼り付けられたトークンの確認に使います)。
+      responses:
+        '200':
+          description: トークンが正しい
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthResponse' }
+              example: { ok: true, guild_id: '111111111111111111', guild_name: 'サーバー名', version: '1.1.0' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: '`/external` で発行した、サーバーごとのトークン (`shb2_` + base64url、32バイト以上の乱数)'
+  schemas:
+    SpeakRequest:
+      type: object
+      required: [channel_id, items]
+      properties:
+        channel_id:
+          type: string
+          pattern: '^\d{5,25}$'
+          description: お題が出ているテキストチャンネルのID。このチャンネルを読み上げ対象にしている号機が読みます。
+        items:
+          type: array
+          minItems: 1
+          maxItems: 20
+          description: 順番どおりに読み上げます。
+          items: { $ref: '#/components/schemas/SpeakItem' }
+        source:
+          type: string
+          maxLength: 64
+          description: 依頼元の識別 (例 `lumi:ogiri`)。読み上げには影響しません。
+    SpeakItem:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: 読み上げる文章 (空白だけは不可)。
+        user_id:
+          type: string
+          pattern: '^\d{5,25}$'
+          description: |
+            回答者のユーザーID。あれば、そのユーザーの声・速度(`/voice` `/speed`)で読みます。
+            無ければ、既定の声・速度(話者3・速度1.0)です。
+        say_name:
+          type: boolean
+          description: true なら、先に「{読み上げ名}さん。」と読みます。読み上げ名は `/name` の設定で、未設定ならサーバーでの表示名です。`user_id` が必要です。
+        voice_id:
+          type: integer
+          minimum: 0
+          maximum: 99999
+          description: VOICEVOX のスタイルID。`user_id` の声より優先して上書きします。
+        speed:
+          type: number
+          minimum: 0.5
+          maximum: 2.0
+          description: 読み上げ速度。`user_id` の速度より優先して上書きします。
+    SpeakResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [queued, no_session]
+          description: |
+            - `queued`: キューに入れた
+            - `no_session`: そのチャンネルを読み上げ対象にしている号機がいない (エラーではない)
+        bot:
+          type: integer
+          description: 読み上げる号機の番号 (1始まり)。`queued` のときだけ。
+        queued:
+          type: integer
+          description: キューに入れた件数。`queued` のときだけ。
+    SessionResponse:
+      type: object
+      required: [active]
+      properties:
+        active: { type: boolean }
+        bot:
+          type: integer
+          description: 読み上げている号機の番号 (1始まり)。`active` が true のときだけ。
+        voice_channel_id:
+          type: string
+          nullable: true
+          description: 号機が入っているVCのID。`active` が true のときだけ。
+    HealthResponse:
+      type: object
+      required: [ok, guild_id, guild_name, version]
+      properties:
+        ok: { type: boolean }
+        guild_id: { type: string }
+        guild_name:
+          type: string
+          nullable: true
+          description: BOTがそのサーバーにいなければ null
+        version: { type: string }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: エラーの種類 (機械が読むためのもの)
+  responses:
+    BadRequest:
+      description: |
+        形式が不正 (`invalid_json` `invalid_body` `invalid_channel_id` `invalid_items` `invalid_text` `invalid_user_id`
+        `invalid_say_name` `invalid_voice_id` `invalid_speed` `invalid_source`)。
+        items のどれか1件でも不正なら、全体を受け付けません。
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: invalid_text }
+    Unauthorized:
+      description: トークンが無効・不明・取り消し済み・ヘッダー無し (理由は区別しません)
+      headers:
+        WWW-Authenticate:
+          schema: { type: string }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: unauthorized }
+    TooLarge:
+      description: 長すぎる (`body_too_large` ボディが64KB超 / `too_many_items` 21件以上 / `text_too_long` 501文字以上)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: text_too_long }
+    RateLimited:
+      description: 回数制限 (1トークン1分60回、または認証失敗が続いたIP)
+      headers:
+        Retry-After:
+          description: 再試行までの秒数
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: rate_limited }

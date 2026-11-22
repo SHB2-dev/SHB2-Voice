@@ -1,0 +1,13 @@
+**/node_modules
+**/settings.json
+**/.env
+.git
+.claude
+bot/test
+bot/icons
+bot/*.ps1
+bot/egg-*.json
+bot/build-egg.js
+docs
+redirect
+README.md

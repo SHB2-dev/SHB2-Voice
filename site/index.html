@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SHB2－読み上げBOT</title>
+<meta name="description" content="VOICEVOXでテキストチャットを読み上げるDiscord BOT。最大6体が同時にそれぞれ別のVCで稼働します。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2064%2064'%3E%3Cdefs%3E%3ClinearGradient%20id%3D'g'%20x1%3D'0'%20y1%3D'0'%20x2%3D'1'%20y2%3D'1'%3E%3Cstop%20offset%3D'0'%20stop-color%3D'%23a5b4fc'%2F%3E%3Cstop%20offset%3D'1'%20stop-color%3D'%236366f1'%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Ccircle%20cx%3D'32'%20cy%3D'32'%20r%3D'32'%20fill%3D'url(%23g)'%2F%3E%3Ctext%20x%3D'32'%20y%3D'44'%20font-size%3D'36'%20font-weight%3D'800'%20text-anchor%3D'middle'%20fill%3D'white'%20font-family%3D'sans-serif'%3E1%3C%2Ftext%3E%3C%2Fsvg%3E">
+<style>
+:root{
+  --bg:#f6f7fb; --surface:#fff; --surface2:#eef0f7; --text:#1c1f2b; --muted:#5b6074;
+  --line:#dfe2ee; --accent:#5865f2; --accent-text:#fff; --ok:#16a34a; --bad:#dc2626;
+  --code:#eceffc;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#14151c; --surface:#1d1f2a; --surface2:#262938; --text:#eceef7; --muted:#a2a7bd;
+    --line:#2f3345; --accent:#7983f5; --accent-text:#0e1020; --code:#2a2e44;}
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);
+  font:16px/1.75 "Segoe UI","Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif}
+a{color:var(--accent)}
+.wrap{max-width:960px;margin:0 auto;padding:0 16px}
+header.site{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 88%,transparent);
+  backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+header.site .wrap{display:flex;align-items:center;gap:16px;min-height:56px;flex-wrap:wrap}
+header.site strong{font-size:17px}
+header.site nav{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto;font-size:14px}
+header.site nav a{color:var(--muted);text-decoration:none}
+header.site nav a:hover{color:var(--text)}
+.hero{padding:56px 0 40px;text-align:center}
+.ico{display:grid;place-items:center;border-radius:50%;color:#fff;font-weight:800;flex:none;
+  background:linear-gradient(135deg,var(--c1),var(--c2));text-shadow:0 2px 6px rgba(0,0,0,.25)}
+.hero .ico{width:112px;height:112px;font-size:60px;margin:0 auto;box-shadow:0 8px 28px rgba(88,101,242,.35)}
+.c1{--c1:#a5b4fc;--c2:#6366f1}
+.c2{--c1:#6ee7b7;--c2:#10b981}
+.c3{--c1:#fcd34d;--c2:#f59e0b}
+.c4{--c1:#fca5a5;--c2:#ef4444}
+.c5{--c1:#f9a8d4;--c2:#ec4899}
+.c6{--c1:#7dd3fc;--c2:#0ea5e9}
+.hero h1{font-size:clamp(26px,5vw,40px);margin:18px 0 8px;line-height:1.3}
+.hero p.lead{max-width:640px;margin:0 auto 24px;color:var(--muted)}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:12px 26px;border-radius:999px;
+  background:var(--accent);color:var(--accent-text);font-weight:700;text-decoration:none;border:0;cursor:pointer}
+.btn:hover{filter:brightness(1.08)}
+.btn.sub{background:var(--surface2);color:var(--text)}
+.hero .note{font-size:13px;color:var(--muted);margin-top:12px}
+section{padding:36px 0;border-top:1px solid var(--line)}
+section h2{font-size:24px;margin:0 0 6px}
+section h2+p.sub{margin:0 0 20px;color:var(--muted)}
+h3{font-size:17px;margin:24px 0 6px}
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+.card h3{margin:0 0 4px;font-size:16px}
+.card p{margin:0;color:var(--muted);font-size:14.5px}
+ol.steps{padding-left:0;list-style:none;counter-reset:s;display:grid;gap:12px}
+ol.steps li{counter-increment:s;background:var(--surface);border:1px solid var(--line);border-radius:14px;
+  padding:14px 16px 14px 56px;position:relative}
+ol.steps li::before{content:counter(s);position:absolute;left:14px;top:12px;width:30px;height:30px;border-radius:50%;
+  background:var(--accent);color:var(--accent-text);display:grid;place-items:center;font-weight:700}
+code{background:var(--code);padding:1px 6px;border-radius:6px;font:13.5px/1.5 ui-monospace,Consolas,monospace}
+table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--line);
+  border-radius:14px;overflow:hidden;font-size:14.5px}
+th,td{padding:10px 14px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+th{background:var(--surface2);font-size:13px;color:var(--muted)}
+tr:last-child td{border-bottom:0}
+td:first-child{white-space:nowrap}
+.scroll{overflow-x:auto}
+.units{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(280px,1fr))}
+.unit{display:flex;gap:14px;align-items:center;background:var(--surface);border:1px solid var(--line);
+  border-radius:14px;padding:14px}
+.unit .ico{width:64px;height:64px;font-size:32px}
+.unit b{display:block}
+.unit span{font-size:13.5px;color:var(--muted)}
+.unit .btn{padding:7px 16px;font-size:14px;margin-top:6px}
+.tag{display:inline-block;font-size:12px;padding:1px 9px;border-radius:999px;background:var(--surface2);color:var(--muted)}
+.status{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 18px;
+  font:14px/1.9 ui-monospace,Consolas,monospace;white-space:pre-wrap}
+.ok{color:var(--ok);font-weight:700}.bad{color:var(--bad);font-weight:700}
+details{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 18px;margin-bottom:10px}
+summary{cursor:pointer;font-weight:600}
+details p{margin:8px 0 0;color:var(--muted)}
+footer{border-top:1px solid var(--line);padding:28px 0 48px;color:var(--muted);font-size:13.5px}
+@media (max-width:560px){header.site nav{display:none}.hero{padding-top:36px}}
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap">
+    <strong>SHB2－読み上げBOT</strong>
+    <nav>
+      <a href="#features">機能</a><a href="#start">使い方</a><a href="#commands">コマンド</a>
+      <a href="#units">号機</a><a href="#rules">読み上げルール</a><a href="#faq">FAQ</a><a href="#news">更新情報</a><a href="#credit">クレジット</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+<div class="wrap hero">
+  <div class="ico c1" role="img" aria-label="SHB2－読み上げBOT 1号機">1</div>
+  <h1>テキストチャットを、<br>VOICEVOXの声で読み上げる。</h1>
+  <p class="lead">VCに入ってチャットに書き込むだけ。ずんだもんなど、VOICEVOXのキャラクターの声でメッセージを読み上げるDiscord BOTです。最大6体が、それぞれ別のVCで同時に動きます。</p>
+  <a class="btn" id="invite" href="https://discord.com/oauth2/authorize?client_id=1559949179604967554&amp;scope=bot+applications.commands&amp;permissions=4302310400" target="_blank" rel="noopener">1号機をサーバーに招待する</a>
+  <p class="note">招待できるのは1号機です。2号機以降は、1号機の返信に出る招待URLから追加できます。</p>
+</div>
+
+<section id="features"><div class="wrap">
+  <h2>機能</h2>
+  <p class="sub">できることをすべて紹介します。</p>
+  <div class="grid">
+    <div class="card"><h3>VOICEVOXの声で読み上げ</h3><p>VOICEVOXの公開APIを使い、100種類以上のキャラクター・スタイルから声を選べます。</p></div>
+    <div class="card"><h3>声・速度・読み名は人ごとに設定</h3><p><code>/voice</code>で声、<code>/speed</code>で速度(0.5〜2.0)、<code>/name</code>で自分の読み上げ名を設定。全号機で共通に使われます。</p></div>
+    <div class="card"><h3>最大6体で複数VCを同時に担当</h3><p><code>/join</code>を打つと、空いている号機が自動で入ります。VCやBOTを引数で指定することもできます。</p></div>
+    <div class="card"><h3>サーバー辞書</h3><p><code>/dict</code>で、サーバー独自の言葉の読み方を登録できます。みんなで共有され、すべての号機で使われます。</p></div>
+    <div class="card"><h3>外部連携API</h3><p>Lumi の大喜利など、ほかのBOTから、HTTPで読み上げを依頼できます。回答は、回答した人本人の声・速度で読みます。サーバーごとのトークンで認証し、<code>/external</code>で管理します。</p></div>
+    <div class="card"><h3>VC自動接続</h3><p><code>/autojoin</code>をオンにすると、<code>/join</code>しなくても、誰かがVCに入った時点で空いている号機が自動参加。そのVCのチャットを読み上げます。</p></div>
+    <div class="card"><h3>複数のチャンネルを読み上げ</h3><p>コマンドを打ったチャンネルと、そのVC自身のチャットが読み上げ対象になります。<code>/channel</code>で追加・削除できます。</p></div>
+    <div class="card"><h3>ステージチャンネル対応</h3><p>ステージに入ると、権限があれば自動でスピーカーに。なければ挙手して、モデレーターの許可を待ちます。</p></div>
+    <div class="card"><h3>入退出のアナウンス</h3><p>VCに誰かが入ると「○○が参加しました」、出ると「○○が退出しました」と、本人の声と読み上げ名で知らせます。BOTの入退出も対象です。<code>/announce</code>で、サーバーごとにオフにできます。</p></div>
+    <div class="card"><h3>号機の状況が一目で分かる</h3><p><code>/join</code>や<code>/status</code>で、各号機が空き(○)か使用中(✕)かが分かります。</p></div>
+    <div class="card"><h3>未招待の号機は招待URLを案内</h3><p>そのサーバーに入っていない号機があれば、名前と招待URLを自動で表示します。</p></div>
+    <div class="card"><h3>誰もいなくなったら自動退出</h3><p>VCから人間がいなくなると、BOTは自動で退出します。つけっぱなしの心配はありません。</p></div>
+    <div class="card"><h3>読みやすい文に整形</h3><p>URL、コードブロック、ネタバレ、絵文字、メンションを読みやすい形に置き換え、長文は途中で切ります。</p></div>
+    <div class="card"><h3>応答速度のグラフ</h3><p><code>/ping</code>で、DiscordとVOICEVOX APIの応答速度を、直近のグラフ付きで表示します。</p></div>
+    <div class="card"><h3>Webhookで定期レポート</h3><p>管理者向けに、応答速度のグラフを30分おきにWebhookで送れます。</p></div>
+  </div>
+</div></section>
+
+<section id="start"><div class="wrap">
+  <h2>使い方</h2>
+  <p class="sub">はじめて使うときの手順です。</p>
+  <ol class="steps">
+    <li><b>1号機を招待する。</b> このページ上部のボタンから、サーバーに追加します。サーバーの管理権限が必要です。</li>
+    <li><b>VCに入る。</b> 読み上げてほしいボイスチャンネル(またはステージ)に、自分が先に入ります。</li>
+    <li><b>チャットで<code>/join</code>を打つ。</b> 空いている号機がVCに入り、「読み上げ対象」のチャンネルを返信で知らせます。</li>
+    <li><b>チャットに書き込む。</b> 対象のチャンネルの発言が、自動で読み上げられます。</li>
+    <li><b>声を変える。</b> <code>/voice</code>で好きなキャラクターを選べます。候補は入力しながら絞り込めます。</li>
+    <li><b>終わったら<code>/leave</code>。</b> 何もしなくても、全員がVCから抜ければ自動で退出します。</li>
+  </ol>
+  <h3>号機の状況表示の例</h3>
+  <div class="status">１号機 <span class="bad">✕</span> (雑談)
+２号機 <span class="ok">○</span>
+３号機 －</div>
+  <p class="sub" style="margin-top:8px"><span class="ok">○</span> 空き　<span class="bad">✕</span> 使用中(入っているVC名つき)　－ このサーバーに未招待</p>
+</div></section>
+
+<section id="commands"><div class="wrap">
+  <h2>コマンド一覧</h2>
+  <p class="sub">コマンドはすべて、1号機が受け付けます(2号機以降はコマンドを持ちません)。</p>
+  <div class="scroll"><table>
+    <tr><th>コマンド</th><th>説明</th></tr>
+    <tr><td><code>/join</code></td><td>自分のいるVCに、空いている号機を参加させます。そのVCを担当する号機がすでにいれば、読み上げ対象のチャンネルを追加します。</td></tr>
+    <tr><td><code>/join vc:</code></td><td>参加させるVC・ステージを指定します。自分がそのVCにいなくても指定できます。</td></tr>
+    <tr><td><code>/join bot:</code></td><td>参加させる号機を指定します。候補には、空いている号機だけが出ます。</td></tr>
+    <tr><td><code>/leave</code></td><td>自分のいるVCを担当している号機を退出させます。</td></tr>
+    <tr><td><code>/skip</code></td><td>再生中の読み上げをスキップします。</td></tr>
+    <tr><td><code>/channel add</code></td><td>読み上げ対象のチャンネルを追加します(省略すると今のチャンネル)。ほかの号機が担当しているチャンネルは追加できません。</td></tr>
+    <tr><td><code>/channel remove</code></td><td>読み上げ対象から外します。最後の1つは外せません(その場合は<code>/leave</code>)。</td></tr>
+    <tr><td><code>/channel list</code></td><td>読み上げ対象の一覧を表示します。</td></tr>
+    <tr><td><code>/voice</code></td><td>自分の読み上げ声を設定します。</td></tr>
+    <tr><td><code>/speed</code></td><td>自分の読み上げ速度を設定します(0.5〜2.0)。</td></tr>
+    <tr><td><code>/name</code></td><td>入退出のときに呼ばれる読み上げ名を設定します(20文字まで)。省略すると、サーバーでの表示名に戻ります。</td></tr>
+    <tr><td><code>/dict add</code></td><td>サーバー辞書に、単語と読みを登録します(例: SHB2 → エスエイチビーツー)。同じ単語は上書きされます。最大200件。</td></tr>
+    <tr><td><code>/dict remove</code></td><td>登録した単語を削除します。候補は入力しながら絞り込めます。</td></tr>
+    <tr><td><code>/dict list</code></td><td>登録済みの単語の一覧を表示します。</td></tr>
+    <tr><td><code>/announce</code></td><td>入退出アナウンス(「○○が参加しました」)のオン/オフを切り替えます(サーバー管理権限が必要)。引数なしで、今の状態を表示します。既定はオンです。</td></tr>
+    <tr><td><code>/external</code></td><td>外部連携API(Lumi などからの読み上げ依頼)の設定です(サーバー管理権限が必要。返信は本人にだけ見えます)。<br>
+      <code>オン</code>: そのサーバー専用のトークンを発行して、<b>1回だけ</b>表示します。すでにオンなら「オンです」と返します(トークンは再表示しません)。<br>
+      <code>再生成</code>: 新しいトークンを発行します。古いトークンは、すぐに無効になります。<br>
+      <code>オフ</code>: 外部連携を止めて、トークンを無効にします。<br>
+      引数なし: オン/オフの状態を表示します。</td></tr>
+    <tr><td><code>/autojoin</code></td><td>VC自動接続のオン/オフを切り替えます(サーバー管理権限が必要)。オンにすると、誰かがVCに入ったとき、空いている号機が自動で参加します。</td></tr>
+    <tr><td><code>/status</code></td><td>各号機の使用状況と、外部連携のオン/オフ、未招待の号機の招待リンクを表示します。</td></tr>
+    <tr><td><code>/ping</code></td><td>DiscordとVOICEVOX APIの応答速度を、直近のグラフ付きで表示します(最大360点)。</td></tr>
+  </table></div>
+  <p style="color:var(--muted);font-size:14px">設定系コマンド(<code>/voice</code> <code>/speed</code> <code>/name</code>)の返信は、実行した本人にだけ見えます。</p>
+</div></section>
+
+<section id="units"><div class="wrap">
+  <h2>号機について</h2>
+  <p class="sub">Discordの仕様で、1つのBOTが同じサーバーで同時に入れるVCは1つだけです。そのため、読み上げBOTを6体用意しています。</p>
+  <div class="units">
+    <div class="unit"><div class="ico c1" aria-hidden="true">1</div><div><b>1号機</b><span>コマンドの窓口。まずはこの号機を招待します。</span><br>
+      <a class="btn" href="https://discord.com/oauth2/authorize?client_id=1559949179604967554&amp;scope=bot+applications.commands&amp;permissions=4302310400" target="_blank" rel="noopener">招待</a></div></div>
+    <div class="unit"><div class="ico c2" aria-hidden="true">2</div><div><b>2号機</b><span>1号機が使用中のとき、代わりに入ります。</span><br><span class="tag">招待URLはBOTの返信に表示</span></div></div>
+    <div class="unit"><div class="ico c3" aria-hidden="true">3</div><div><b>3号機</b><span>2号機までが使用中のとき、入ります。</span><br><span class="tag">招待URLはBOTの返信に表示</span></div></div>
+    <div class="unit"><div class="ico c4" aria-hidden="true">4</div><div><b>4号機</b><span>3号機までが使用中のとき、入ります。</span><br><span class="tag">招待URLはBOTの返信に表示</span></div></div>
+    <div class="unit"><div class="ico c5" aria-hidden="true">5</div><div><b>5号機</b><span>4号機までが使用中のとき、入ります。</span><br><span class="tag">招待URLはBOTの返信に表示</span></div></div>
+    <div class="unit"><div class="ico c6" aria-hidden="true">6</div><div><b>6号機</b><span>5号機までが使用中のとき、入ります。</span><br><span class="tag">招待URLはBOTの返信に表示</span></div></div>
+  </div>
+  <h3>号機の選ばれ方</h3>
+  <p>1つのVCにつき担当は1体です。<code>/join</code>では、そのサーバーにいて、まだVCに入っていない号機のうち、番号の小さいものが入ります。2つ以上のVCで同時に使いたいときは、2号機以降をサーバーに招待しておいてください。</p>
+  <p>同じVC・同じチャンネルを、複数の号機が二重に読み上げることはありません。</p>
+</div></section>
+
+<section id="rules"><div class="wrap">
+  <h2>読み上げのルール</h2>
+  <p class="sub">メッセージは、読み上げる前に次のように整形されます。</p>
+  <div class="scroll"><table>
+    <tr><th>元の内容</th><th>読み上げ</th></tr>
+    <tr><td>URL(<code>https://…</code>)</td><td>「ユーアールエル」</td></tr>
+    <tr><td>コードブロック(<code>```…```</code>)</td><td>「コードブロック」</td></tr>
+    <tr><td>ネタバレ(<code>||…||</code>)</td><td>「ネタバレ」</td></tr>
+    <tr><td>サーバー絵文字</td><td>絵文字の名前</td></tr>
+    <tr><td>ユーザー・ロールのメンション</td><td>「名前さん」(表示名で読みます)</td></tr>
+    <tr><td>チャンネルのメンション</td><td>「名前チャンネル」</td></tr>
+    <tr><td><code>@everyone</code> / <code>@here</code></td><td>「全員宛て」/「オンライン宛て」</td></tr>
+    <tr><td>長いメッセージ</td><td>100文字で切り、「、以下略」を付けます(上限は管理者が変更できます)</td></tr>
+    <tr><td>サーバー辞書に登録した単語</td><td>登録した読みに置き換えます(<code>/dict</code>)</td></tr>
+    <tr><td>BOTの発言</td><td>読み上げません(外部連携API経由の依頼は、読み上げます)</td></tr>
+  </table></div>
+  <h3>読み上げ対象になるチャンネル</h3>
+  <p><code>/join</code>を打ったチャンネルと、参加したVC(またはステージ)自身のテキストチャットです。そのほかのチャンネルは、<code>/channel add</code>で追加します。</p>
+  <h3>必要なBOTの権限</h3>
+  <p>チャンネルを表示、メッセージを送る、接続、発言、メンバーをミュート、スピーカー参加をリクエスト。最後の2つは、ステージチャンネルで発言権を得るために使います。招待リンクに、あらかじめ含まれています。</p>
+</div></section>
+
+<section id="faq"><div class="wrap">
+  <h2>よくある質問</h2>
+  <p class="sub">&nbsp;</p>
+  <details><summary>コマンドが出てきません</summary><p>コマンドを持っているのは1号機だけです。1号機がサーバーに入っているか確認してください。入っていても出ない場合は、Discordを再読み込みしてください。</p></details>
+  <details><summary>読み上げが始まりません</summary><p>次の点を確認してください。①自分がVCに入っている ②<code>/join</code>したチャンネルで発言している ③BOTにVCへの「接続」「発言」権限がある ④ステージの場合、BOTがスピーカーになっている(挙手していれば、モデレーターが許可する必要があります)。</p></details>
+  <details><summary>「空いているBOTがいません」と出ます</summary><p>そのサーバーにいる号機が、すべて使用中です。2号機以降を招待すると、同時に使えるVCが増えます。<code>/status</code>で、未招待の号機の招待URLが分かります。</p></details>
+  <details><summary>自分の声を変えたい</summary><p><code>/voice</code>で選べます。入力しながらキャラクター名で絞り込めます。速度は<code>/speed</code>です。設定は号機が変わっても引き継がれます。</p></details>
+  <details><summary>単語や固有名詞の読み方が違います</summary><p><code>/dict add</code>で、単語と読み方を登録してください。そのサーバーの読み上げ全体に反映されます。長い単語が優先され、英字は大文字小文字を区別しません。</p></details>
+  <details><summary>名前の読み方が違います</summary><p><code>/name</code>で、ひらがななどの読み方を登録できます。<code>/name</code>だけを実行すると、表示名に戻ります。</p></details>
+  <details><summary>毎回 /join するのが面倒です</summary><p>サーバーの管理者が<code>/autojoin</code>でオンにすると、誰かがVCに入ったとき、空いている号機が自動で参加します。読み上げ対象は、そのVCのチャットです。AFKチャンネルと、すでに号機がいるVCは対象外です。</p></details>
+  <details><summary>別のVCに移したい</summary><p>先に<code>/leave</code>で退出させ、移動先のVCに入ってから<code>/join</code>してください。</p></details>
+  <details><summary>外部連携(Lumi の大喜利など)の使い方は?</summary><p>サーバーの管理者が、<code>/external</code>で「オン」を選ぶと、そのサーバー専用のトークン(<code>shb2_</code>で始まる文字列)が、1回だけ表示されます。これを、Lumi のダッシュボードの「読み上げ連携」に貼り付けてください。あとは、読み上げたいチャンネルで号機をVCに入れておく(<code>/join</code>か<code>/autojoin</code>)と、Lumi が出したお題や回答を、読み上げます。回答は、回答した人本人の声と速度で読みます。トークンを失くしたり、漏らしたりしたときは、<code>/external</code>の「再生成」で、古いトークンを無効にして、新しく発行できます。やめるときは「オフ」です。</p></details>
+  <details><summary>外部連携のトークンは安全ですか</summary><p>トークンは、サーバーごとに別々で、そのサーバーの読み上げだけを依頼できます。BOT側には、トークンそのものは保存せず、ハッシュ(元に戻せない値)だけを保存します。そのため、BOTの管理者でも、トークンを見ることはできません。認証に失敗するアクセスは、回数を制限しています。</p></details>
+  <details><summary>データは保存されますか</summary><p>保存するのは、設定したユーザーIDごとの声・速度・読み上げ名、サーバー辞書、各サーバーの設定(外部連携のトークンのハッシュを含む)だけです。メッセージの内容は保存しません。ただし、読み上げのため、メッセージの文字列を、音声合成を行うVOICEVOX公開API(open.voicevox.nogame-no.life)に送信します。外部連携APIで、Lumi などから送られてきた文章も、同じように読み上げのためだけにVOICEVOX公開APIに送信し、保存はしません(BOTのログにも、本文は残さず、サーバーIDと件数だけを残します)。</p></details>
+</div></section>
+
+<section id="news"><div class="wrap">
+  <h2>更新情報</h2>
+  <p class="sub">最近の追加・変更です。</p>
+  <div class="scroll"><table>
+    <tr><th>日付</th><th>内容</th></tr>
+    <tr><td>2026-11-15</td><td><b>入退出アナウンスのオン/オフ</b>(<code>/announce</code>)を追加しました。</td></tr>
+    <tr><td>2026-11-12</td><td><b>外部連携API</b>と<code>/external</code>を追加しました。Lumi の大喜利など、ほかのBOTから、HTTPで読み上げを依頼できます(回答は、本人の声・速度で読みます)。<code>/status</code>に、外部連携のオン/オフも表示します。</td></tr>
+    <tr><td>2026-10-15</td><td><b>サーバー辞書</b>(<code>/dict</code>)を追加しました。単語の読み方を登録できます。</td></tr>
+    <tr><td>2026-10-15</td><td><b>VC自動接続</b>(<code>/autojoin</code>)を追加しました。誰かがVCに入ると、空いている号機が自動で参加します。</td></tr>
+    <tr><td>2026-10-15</td><td>各号機の使用状況(<code>/status</code>)と、未招待の号機の招待URL表示を追加しました。</td></tr>
+    <tr><td>2026-10-15</td><td>音声ライブラリを更新し、Discordの音声暗号化(DAVE)に対応しました。</td></tr>
+    <tr><td>2026-10-14</td><td>公開しました。複数号機、ステージ対応、入退出アナウンス、<code>/ping</code>グラフなどを搭載しています。</td></tr>
+  </table></div>
+</div></section>
+
+<section id="credit"><div class="wrap">
+  <h2>クレジットと注意</h2>
+  <ul style="color:var(--muted)">
+    <li>音声合成には、<a href="https://voicevox.hiroshiba.jp/" target="_blank" rel="noopener">VOICEVOX</a>を使用しています。使用する音声ライブラリ・キャラクターごとの利用規約とクレジット表記のルールに従ってください。配信や公開の場で使う場合は、「VOICEVOX:キャラクター名」などのクレジット表記が必要です。</li>
+    <li>音声合成は、有志が運営する公開API(<a href="https://open.voicevox.nogame-no.life/docs" target="_blank" rel="noopener">VOICEVOX Public API Gateway</a>)を利用しています。このBOTは、VOICEVOX公式およびAPIの運営者とは関係ありません。</li>
+    <li>APIには利用上限があります。混雑時などに、読み上げが遅れたり、一時的に止まったりすることがあります。</li>
+    <li>BOTは予告なく、停止・仕様変更をすることがあります。</li>
+  </ul>
+</div></section>
+</main>
+
+<footer>
+  <div class="wrap">SHB2－読み上げBOT　／　音声合成: VOICEVOX</div>
+</footer>
+
+</body>
+</html>

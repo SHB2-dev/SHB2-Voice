@@ -1,0 +1,17 @@
+{
+  "name": "voicevox-discord-bot",
+  "version": "1.1.0",
+  "main": "index.js",
+  "scripts": { "start": "node index.js", "test": "node --test" },
+  "dependencies": {
+    "@discordjs/voice": "^0.19.2",
+    "@snazzah/davey": "^0.1.12",
+    "discord.js": "^14.26.0",
+    "ffmpeg-static": "^5.2.0",
+    "libsodium-wrappers": "^0.7.13",
+    "opusscript": "^0.1.1"
+  },
+  "optionalDependencies": {
+    "@discordjs/opus": "^0.9.0"
+  }
+}

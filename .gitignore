@@ -1,0 +1,7 @@
+node_modules/
+settings.json
+.env
+.env.*
+.claude/
+*.log
+SHB2-DEV/
