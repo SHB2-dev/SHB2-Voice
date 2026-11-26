@@ -145,10 +145,18 @@ function startBot(token, isPrimary) {
   const group = () => client.user.id;
   const vconn = (guildId) => getVoiceConnection(guildId, group());
 
+  // 再起動後に自動で戻れるよう、いる場所(VCと読み上げ対象)を保存する。退出・切断・キックで消す
+  // (プロセスの停止では release は呼ばれないので、保存したまま残る)
+  function persist(g) {
+    if (!g?.vcId) return;
+    ((settings.sessions ||= {})[client.user.id] ||= {})[g.guildId] = { vcId: g.vcId, channelIds: [...g.channelIds] };
+    save();
+  }
   function release(guildId) {
     const g = guilds.get(guildId);
     if (g) for (const c of g.channelIds) if (owners.get(c) === client.user.id) owners.delete(c);
     guilds.delete(guildId);
+    if (settings.sessions?.[client.user.id]?.[guildId]) { delete settings.sessions[client.user.id][guildId]; save(); }
   }
   function playNext(guildId) {
     const g = guilds.get(guildId);
@@ -172,9 +180,10 @@ function startBot(token, isPrimary) {
       if (o && o !== client.user.id) rejected.push(id);
       else { g.channelIds.add(id); owners.set(id, client.user.id); }
     }
+    persist(g);
     return rejected;
   }
-  const bot = { id: tokenId(token), client, guilds, group, vconn, release, playNext, enqueue, addChannels };
+  const bot = { id: tokenId(token), client, guilds, group, vconn, release, playNext, enqueue, addChannels, persist };
   bots.push(bot);
 
   client.once('clientReady', async () => {
@@ -182,6 +191,7 @@ function startBot(token, isPrimary) {
     // primary だけがコマンドを持つ。worker は過去に登録したコマンドを消す
     await new REST().setToken(token).put(Routes.applicationCommands(client.user.id), { body: isPrimary ? commands : [] });
     if (isPrimary && !styles.length) { try { await loadSpeakers(); } catch (e) { console.error(e); } }
+    await restoreSessions(bot);
   });
 
   if (isPrimary) {
@@ -299,7 +309,7 @@ async function connectBot(bot, guildId, vcId, textChannelIds) {
   });
   const player = createAudioPlayer();
   connection.subscribe(player);
-  const state = { channelIds: new Set(), player, queue: [], playing: false };
+  const state = { channelIds: new Set(), player, queue: [], playing: false, guildId, vcId };
   bot.guilds.set(guildId, state);
   bot.addChannels(state, [...textChannelIds, vcId]);
   player.on(AudioPlayerStatus.Idle, () => bot.playNext(guildId));
@@ -334,6 +344,23 @@ async function connectBot(bot, guildId, vcId, textChannelIds) {
     }
   }
   return { state, note };
+}
+
+// 再起動したとき、保存しておいた場所(VC・読み上げ対象)に、自動で戻る
+async function restoreSessions(bot) {
+  const saved = settings.sessions?.[bot.client.user.id];
+  if (!saved) return;
+  for (const [guildId, s] of Object.entries({ ...saved })) {
+    try {
+      if (!bot.client.guilds.cache.has(guildId)) throw new Error('サーバーにいません');
+      await connectBot(bot, guildId, s.vcId, (s.channelIds || []).filter((c) => c !== s.vcId));
+      console.log(`[restore] ${bot.client.user.username} -> ${bot.client.guilds.cache.get(guildId)?.channels.cache.get(s.vcId)?.name ?? s.vcId} に再接続`);
+    } catch (e) {
+      // 戻れない場所(VCの削除・権限の変更・サーバーから退出)は、保存を消す
+      console.warn(`[restore] ${bot.client.user.username}: 再接続できませんでした (${guildId}): ${e.message}`);
+      bot.release(guildId);
+    }
+  }
 }
 
 // VC自動接続: 人がVCに入ったとき、空いている号機を自動で参加させる (/autojoin on のサーバーのみ)
@@ -601,6 +628,7 @@ async function handleInteraction(i, primary) {
         if (g.channelIds.size <= 1 && g.channelIds.has(target)) return reply('最後の1チャンネルは外せません。/leave を使ってください。');
         g.channelIds.delete(target);
         if (owners.get(target) === bot.client.user.id) owners.delete(target);
+        bot.persist(g);
       }
       return reply(`**${bot.client.user.username}** の読み上げ対象: ${list(g)}${warn}`);
     }
