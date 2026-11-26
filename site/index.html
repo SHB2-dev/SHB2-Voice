@@ -161,6 +161,7 @@ footer{border-top:1px solid var(--line);padding:28px 0 48px;color:var(--muted);f
     <tr><td><code>/channel list</code></td><td>読み上げ対象の一覧を表示します。</td></tr>
     <tr><td><code>/voice</code></td><td>声・速度の操作画面を開きます。話者を選び、次に読み方(ノーマル・あまあま など)を選ぶ2段階で、声を決められます。速度はボタンで変えられます(本人にだけ見えます)。話者を直接指定することもできます。</td></tr>
     <tr><td><code>/help</code></td><td>コマンドの一覧を表示します。</td></tr>
+    <tr><td><code>/version</code></td><td>BOTのバージョン、ビルド、稼働時間、ログイン中の号機の数を表示します。</td></tr>
     <tr><td><code>/license</code></td><td>ライセンス(MIT)と、VOICEVOXのクレジットを表示します。</td></tr>
     <tr><td><code>/speed</code></td><td>自分の読み上げ速度を設定します(0.5〜2.0)。</td></tr>
     <tr><td><code>/name</code></td><td>入退出のときに呼ばれる読み上げ名を設定します(20文字まで)。省略すると、サーバーでの表示名に戻ります。</td></tr>
@@ -240,6 +241,7 @@ footer{border-top:1px solid var(--line);padding:28px 0 48px;color:var(--muted);f
   <p class="sub">最近の追加・変更です。</p>
   <div class="scroll"><table>
     <tr><th>日付</th><th>内容</th></tr>
+    <tr><td>2026-11-29</td><td><b>バージョン確認</b>(<code>/version</code>)を追加しました。</td></tr>
     <tr><td>2026-11-28</td><td><code>/voice</code> の操作画面で、<b>話者 → 読み方(スタイル)</b>の2段階で選べるようにしました。</td></tr>
     <tr><td>2026-11-28</td><td><code>/voice</code> <code>/status</code> <code>/help</code> <code>/license</code> に<b>public</b>の選択を追加しました。全員に見える形で表示できます(省略すると、自分だけ)。</td></tr>
     <tr><td>2026-11-27</td><td><b>再起動したときの自動再接続</b>を追加しました。号機は、直前にいたVCと読み上げ対象のチャンネルに、自動で戻ります。</td></tr>

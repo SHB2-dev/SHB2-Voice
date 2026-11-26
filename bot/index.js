@@ -102,6 +102,8 @@ const commands = [
   new SlashCommandBuilder().setName('voice').setDescription('自分の読み上げ声を設定します (省略すると、操作画面を開きます)')
     .addIntegerOption((o) => o.setName('speaker').setDescription('話者 (省略すると、操作画面)').setAutocomplete(true))
     .addBooleanOption((o) => o.setName('public').setDescription('全員に見える形で表示する (省略すると、自分だけに表示)')),
+  new SlashCommandBuilder().setName('version').setDescription('BOTのバージョンと、稼働状況を表示します')
+    .addBooleanOption((o) => o.setName('public').setDescription('全員に見える形で表示する (省略すると、自分だけに表示)')),
   new SlashCommandBuilder().setName('help').setDescription('コマンドの一覧を表示します').addBooleanOption((o) => o.setName('public').setDescription('全員に見える形で表示する (省略すると、自分だけに表示)')),
   new SlashCommandBuilder().setName('license').setDescription('ライセンスとクレジットを表示します').addBooleanOption((o) => o.setName('public').setDescription('全員に見える形で表示する (省略すると、自分だけに表示)')),
   new SlashCommandBuilder().setName('name').setDescription('入退出・発言時に呼ばれる自分の読み上げ名を設定します (省略でリセット)')
@@ -120,8 +122,9 @@ const bots = [];
 
 // ---- 外部連携API (/api/v1) と /external ----
 const { createExternalApi } = require('./external-api');
-const APP_VERSION = '1.2.0';
-const BUILD_ID = process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) || 'dev'; // build-egg.js がビルド日時を埋め込む (どの版が動いているか確認するため)
+const APP_VERSION = '1.3.0';
+const BUILD_ID = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_SHA)?.slice(0, 7) || 'dev';
+const STARTED_AT = Date.now(); // build-egg.js がビルド日時を埋め込む (どの版が動いているか確認するため)
 console.log(`SHB2 読み上げBOT v${APP_VERSION} build ${BUILD_ID}`);
 const guildOf = (guildId) => bots.map((b) => b.client.guilds.cache.get(guildId)).find(Boolean);
 
@@ -488,7 +491,7 @@ function helpEmbed() {
       { name: '読み上げ', value: '`/join` 空いている号機がVCに参加 (`vc:` `bot:` で指定も可)\n`/leave` 退出\n`/skip` 再生中の読み上げをスキップ\n`/channel add|remove|list` 読み上げ対象のチャンネル' },
       { name: '自分の設定', value: '`/voice` 声・速度の操作画面 (`speaker:` で直接指定も可)\n`/speed` 速度 (0.5〜2.0)\n`/name` 読み上げ名 (省略でリセット)' },
       { name: 'サーバーの設定', value: '`/dict add|remove|list` サーバー辞書\n`/autojoin` VC自動接続 (管理権限)\n`/announce` 入退出アナウンス\n`/external` 外部連携API (管理権限)' },
-      { name: '情報', value: '`/status` 号機の状況\n`/ping` 応答速度のグラフ\n`/help` このメッセージ\n`/license` ライセンス・クレジット' },
+      { name: '情報', value: '`/status` 号機の状況\n`/ping` 応答速度のグラフ\n`/version` バージョンと稼働状況\n`/help` このメッセージ\n`/license` ライセンス・クレジット' },
     ],
   };
 }
@@ -675,6 +678,22 @@ async function handleInteraction(i, primary) {
     case 'skip': {
       findBot(i)?.guilds.get(i.guild.id)?.player.stop();
       return reply('スキップしました。');
+    }
+    case 'version': {
+      const up = Math.floor((Date.now() - STARTED_AT) / 1000);
+      const upText = `${Math.floor(up / 86400)}日 ${Math.floor(up % 86400 / 3600)}時間 ${Math.floor(up % 3600 / 60)}分`;
+      return i.reply({ embeds: [{
+        color: 0x7c4dff,
+        title: 'SHB2－読み上げBOT',
+        fields: [
+          { name: 'バージョン', value: `v${APP_VERSION}`, inline: true },
+          { name: 'ビルド', value: BUILD_ID, inline: true },
+          { name: 'Node.js', value: process.version, inline: true },
+          { name: '稼働時間', value: upText, inline: true },
+          { name: '号機', value: `${bots.filter((b) => b.client.isReady()).length} / ${bots.length} 体がログイン中`, inline: true },
+        ],
+        footer: { text: 'https://github.com/SHB2-dev/SHB2-Voice' },
+      }], flags: vis });
     }
     case 'help': return i.reply({ embeds: [helpEmbed()], flags: vis });
     case 'license': return i.reply({ embeds: [licenseEmbed()], flags: vis });
