@@ -2,7 +2,8 @@ const fs = require('fs');
 const { Readable } = require('stream');
 const {
   Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, MessageFlags,
-  ChannelType, PermissionFlagsBits,
+  ChannelType, PermissionFlagsBits, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle,
+  ModalBuilder, TextInputBuilder, TextInputStyle,
 } = require('discord.js');
 const {
   joinVoiceChannel, createAudioPlayer, createAudioResource,
@@ -98,8 +99,10 @@ const commands = [
   new SlashCommandBuilder().setName('ping').setDescription('Discord/VOICEVOX APIの応答速度を直近のグラフ付きで表示します'),
   new SlashCommandBuilder().setName('leave').setDescription('VCから退出します'),
   new SlashCommandBuilder().setName('skip').setDescription('再生中の読み上げをスキップします'),
-  new SlashCommandBuilder().setName('voice').setDescription('自分の読み上げ声を設定します')
-    .addIntegerOption((o) => o.setName('speaker').setDescription('話者').setAutocomplete(true).setRequired(true)),
+  new SlashCommandBuilder().setName('voice').setDescription('自分の読み上げ声を設定します (省略すると、操作画面を開きます)')
+    .addIntegerOption((o) => o.setName('speaker').setDescription('話者 (省略すると、操作画面)').setAutocomplete(true)),
+  new SlashCommandBuilder().setName('help').setDescription('コマンドの一覧を表示します'),
+  new SlashCommandBuilder().setName('license').setDescription('ライセンスとクレジットを表示します'),
   new SlashCommandBuilder().setName('name').setDescription('入退出・発言時に呼ばれる自分の読み上げ名を設定します (省略でリセット)')
     .addStringOption((o) => o.setName('value').setDescription('読み方 (例: ずんだもん)').setMaxLength(20)),
   new SlashCommandBuilder().setName('speed').setDescription('自分の読み上げ速度を設定します')
@@ -116,7 +119,7 @@ const bots = [];
 
 // ---- 外部連携API (/api/v1) と /external ----
 const { createExternalApi } = require('./external-api');
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 const BUILD_ID = process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) || 'dev'; // build-egg.js がビルド日時を埋め込む (どの版が動いているか確認するため)
 console.log(`SHB2 読み上げBOT v${APP_VERSION} build ${BUILD_ID}`);
 const guildOf = (guildId) => bots.map((b) => b.client.guilds.cache.get(guildId)).find(Boolean);
@@ -353,6 +356,97 @@ async function handleAutoJoin(oldS, newS) {
   } catch (e) { console.error('自動接続失敗:', e.message); }
 }
 
+// ---- 音声設定の操作画面 (/voice) ----
+// 本人にだけ見える(ephemeral)ので、他の人は操作できない。状態は customId に持たせる (vp:<操作>:<ページ>)
+const PANEL_PAGE = 25;
+function voicePanel(userId, page) {
+  const cfg = userCfg(userId);
+  const idx = styles.findIndex((s) => s.id === cfg.speaker);
+  const pages = Math.max(1, Math.ceil(styles.length / PANEL_PAGE));
+  if (page == null) page = idx >= 0 ? Math.floor(idx / PANEL_PAGE) : 0;
+  page = Math.min(Math.max(page, 0), pages - 1);
+  const cur = idx >= 0 ? styles[idx].label : `ID ${cfg.speaker}`;
+  const embed = {
+    color: 0x7c4dff,
+    title: '🎤 音声設定',
+    description: 'あなたの音声設定です。全号機の読み上げに、適用されます。\n\n'
+      + `**現在の話者:** ${cur}\n**速度:** ${cfg.speed}`,
+    footer: { text: '設定は、選んだ時点で保存されます' },
+  };
+  const rows = [];
+  if (styles.length) {
+    rows.push(new ActionRowBuilder().addComponents(new StringSelectMenuBuilder()
+      .setCustomId(`vp:sel:${page}`).setPlaceholder('話者を選択')
+      .addOptions(styles.slice(page * PANEL_PAGE, (page + 1) * PANEL_PAGE).map((s) => ({
+        label: s.label.slice(0, 100), value: String(s.id), default: s.id === cfg.speaker,
+      })))));
+    rows.push(new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`vp:go:${page - 1}`).setLabel('前').setEmoji('◀️').setStyle(ButtonStyle.Secondary).setDisabled(page <= 0),
+      new ButtonBuilder().setCustomId('vp:page').setLabel(`${page + 1} / ${pages}`).setStyle(ButtonStyle.Secondary).setDisabled(true),
+      new ButtonBuilder().setCustomId(`vp:go:${page + 1}`).setLabel('次').setEmoji('▶️').setStyle(ButtonStyle.Secondary).setDisabled(page >= pages - 1),
+    ));
+  } else {
+    embed.description += '\n\n話者の一覧を、まだ取得できていません。少し待ってから、もう一度開いてください。';
+  }
+  rows.push(new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`vp:speed:${page}`).setLabel(`速度を変更 (現在: ${cfg.speed})`).setEmoji('🔊').setStyle(ButtonStyle.Primary)));
+  return { embeds: [embed], components: rows };
+}
+
+async function handlePanel(i) {
+  const [, op, arg] = i.customId.split(':');
+  const page = Number(arg) || 0;
+  if (i.isStringSelectMenu() && op === 'sel') {
+    const id = Number(i.values[0]);
+    if (!styles.some((s) => s.id === id)) return i.update(voicePanel(i.user.id, page));
+    settings.users[i.user.id] = { ...userCfg(i.user.id), speaker: id };
+    save();
+    return i.update(voicePanel(i.user.id, page));
+  }
+  if (i.isButton() && op === 'go') return i.update(voicePanel(i.user.id, page));
+  if (i.isButton() && op === 'speed') {
+    return i.showModal(new ModalBuilder().setCustomId(`vp:speedmodal:${page}`).setTitle('速度を変更')
+      .addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder()
+        .setCustomId('value').setLabel('速度 (0.5〜2.0)').setStyle(TextInputStyle.Short)
+        .setValue(String(userCfg(i.user.id).speed)).setMinLength(1).setMaxLength(5).setRequired(true))));
+  }
+  if (i.isModalSubmit() && op === 'speedmodal') {
+    const v = Number(i.fields.getTextInputValue('value').trim().replace(/[０-９．]/g, (c) => c === '．' ? '.' : String.fromCharCode(c.charCodeAt(0) - 0xFEE0)));
+    if (!Number.isFinite(v) || v < 0.5 || v > 2.0) {
+      return i.reply({ content: '速度は、0.5〜2.0 の数字で入力してください。', flags: MessageFlags.Ephemeral });
+    }
+    settings.users[i.user.id] = { ...userCfg(i.user.id), speed: Math.round(v * 100) / 100 };
+    save();
+    return i.update(voicePanel(i.user.id, page));
+  }
+}
+
+function helpEmbed() {
+  return {
+    color: 0x7c4dff,
+    title: 'SHB2－読み上げBOT コマンド一覧',
+    description: '詳しい使い方: https://shb2-bot.shishen575.com/',
+    fields: [
+      { name: '読み上げ', value: '`/join` 空いている号機がVCに参加 (`vc:` `bot:` で指定も可)\n`/leave` 退出\n`/skip` 再生中の読み上げをスキップ\n`/channel add|remove|list` 読み上げ対象のチャンネル' },
+      { name: '自分の設定', value: '`/voice` 声・速度の操作画面 (`speaker:` で直接指定も可)\n`/speed` 速度 (0.5〜2.0)\n`/name` 読み上げ名 (省略でリセット)' },
+      { name: 'サーバーの設定', value: '`/dict add|remove|list` サーバー辞書\n`/autojoin` VC自動接続 (管理権限)\n`/announce` 入退出アナウンス\n`/external` 外部連携API (管理権限)' },
+      { name: '情報', value: '`/status` 号機の状況\n`/ping` 応答速度のグラフ\n`/help` このメッセージ\n`/license` ライセンス・クレジット' },
+    ],
+  };
+}
+
+function licenseEmbed() {
+  return {
+    color: 0x7c4dff,
+    title: 'ライセンス・クレジット',
+    description: `**SHB2－読み上げBOT** v${APP_VERSION}\nソースコード: MIT License (Copyright (c) 2026 SHB2-dev)\nhttps://github.com/SHB2-dev/SHB2-Voice`,
+    fields: [
+      { name: '音声', value: '音声合成は [VOICEVOX](https://voicevox.hiroshiba.jp/) を使っています (公開API: https://open.voicevox.nogame-no.life/docs)。\n各キャラクター・音声ライブラリの利用規約と、クレジット表記に従ってください。' },
+      { name: '注意', value: 'MIT License は、このBOTのソースコードだけが対象です。VOICEVOX・キャラクターの規約は、別です。VOICEVOX公式、およびAPIの運営者とは、関係ありません。' },
+    ],
+  };
+}
+
 async function handleInteraction(i, primary) {
   if (i.isAutocomplete()) {
     if (i.options.getFocused(true).name === 'word') {
@@ -371,8 +465,9 @@ async function handleInteraction(i, primary) {
     return i.respond(styles.filter((s) => s.label.toLowerCase().includes(q) || String(s.id) === q)
       .slice(0, 25).map((s) => ({ name: `${s.label} [${s.id}]`.slice(0, 100), value: s.id })));
   }
+  if (i.customId?.startsWith('vp:')) return handlePanel(i);
   if (!i.isChatInputCommand() || !i.guild) return;
-  const reply = (content) => i.reply({ content, flags: MessageFlags.Ephemeral });
+  const reply =(content) => i.reply({ content, flags: MessageFlags.Ephemeral });
 
   switch (i.commandName) {
     case 'status': {
@@ -520,8 +615,11 @@ async function handleInteraction(i, primary) {
       findBot(i)?.guilds.get(i.guild.id)?.player.stop();
       return reply('スキップしました。');
     }
+    case 'help': return i.reply({ embeds: [helpEmbed()], flags: MessageFlags.Ephemeral });
+    case 'license': return i.reply({ embeds: [licenseEmbed()], flags: MessageFlags.Ephemeral });
     case 'voice': {
       const id = i.options.getInteger('speaker');
+      if (id == null) return i.reply({ ...voicePanel(i.user.id), flags: MessageFlags.Ephemeral });
       settings.users[i.user.id] = { ...userCfg(i.user.id), speaker: id };
       save();
       const name = styles.find((s) => s.id === id)?.label ?? `ID ${id}`;
