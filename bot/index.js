@@ -40,7 +40,7 @@ async function loadSpeakers() {
   const res = await fetch(`${BASE}/speakers`);
   if (!res.ok) throw new Error(`/speakers ${res.status}`);
   const data = await res.json();
-  styles = data.flatMap((s) => s.styles.map((st) => ({ label: `${s.name}（${st.name}）`, id: st.id })));
+  styles = data.flatMap((s) => s.styles.map((st) => ({ label: `${s.name}（${st.name}）`, id: st.id, chara: s.name, style: st.name })));
   console.log(`話者スタイル ${styles.length} 件を取得`);
 }
 
@@ -95,14 +95,15 @@ const commands = [
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addStringOption((o) => o.setName('action').setDescription('省略すると、オン/オフの状態を表示')
       .addChoices({ name: 'オン (トークンを発行)', value: 'on' }, { name: '再生成 (古いトークンを無効化)', value: 'regenerate' }, { name: 'オフ (トークンを無効化)', value: 'off' })),
-  new SlashCommandBuilder().setName('status').setDescription('各号機の使用状況を表示します'),
+  new SlashCommandBuilder().setName('status').setDescription('各号機の使用状況を表示します').addBooleanOption((o) => o.setName('public').setDescription('全員に見える形で表示する (省略すると、自分だけに表示)')),
   new SlashCommandBuilder().setName('ping').setDescription('Discord/VOICEVOX APIの応答速度を直近のグラフ付きで表示します'),
   new SlashCommandBuilder().setName('leave').setDescription('VCから退出します'),
   new SlashCommandBuilder().setName('skip').setDescription('再生中の読み上げをスキップします'),
   new SlashCommandBuilder().setName('voice').setDescription('自分の読み上げ声を設定します (省略すると、操作画面を開きます)')
-    .addIntegerOption((o) => o.setName('speaker').setDescription('話者 (省略すると、操作画面)').setAutocomplete(true)),
-  new SlashCommandBuilder().setName('help').setDescription('コマンドの一覧を表示します'),
-  new SlashCommandBuilder().setName('license').setDescription('ライセンスとクレジットを表示します'),
+    .addIntegerOption((o) => o.setName('speaker').setDescription('話者 (省略すると、操作画面)').setAutocomplete(true))
+    .addBooleanOption((o) => o.setName('public').setDescription('全員に見える形で表示する (省略すると、自分だけに表示)')),
+  new SlashCommandBuilder().setName('help').setDescription('コマンドの一覧を表示します').addBooleanOption((o) => o.setName('public').setDescription('全員に見える形で表示する (省略すると、自分だけに表示)')),
+  new SlashCommandBuilder().setName('license').setDescription('ライセンスとクレジットを表示します').addBooleanOption((o) => o.setName('public').setDescription('全員に見える形で表示する (省略すると、自分だけに表示)')),
   new SlashCommandBuilder().setName('name').setDescription('入退出・発言時に呼ばれる自分の読み上げ名を設定します (省略でリセット)')
     .addStringOption((o) => o.setName('value').setDescription('読み方 (例: ずんだもん)').setMaxLength(20)),
   new SlashCommandBuilder().setName('speed').setDescription('自分の読み上げ速度を設定します')
@@ -384,55 +385,85 @@ async function handleAutoJoin(oldS, newS) {
 }
 
 // ---- 音声設定の操作画面 (/voice) ----
-// 本人にだけ見える(ephemeral)ので、他の人は操作できない。状態は customId に持たせる (vp:<操作>:<ページ>)
+// 話者(キャラクター)を選び、次に読み方(スタイル)を選ぶ。
+// 全員に見える形(public)で開いても、操作できるのは開いた本人だけ。状態は customId に持たせる (vp:<操作>:<ページ>:<本人のID>:<話者の番号>)
 const PANEL_PAGE = 25;
-function voicePanel(userId, page) {
+function charactersOf() {
+  const list = [];
+  const byName = new Map();
+  for (const s of styles) {
+    let c = byName.get(s.chara);
+    if (!c) { c = { name: s.chara, styles: [] }; byName.set(s.chara, c); list.push(c); }
+    c.styles.push(s);
+  }
+  return list;
+}
+function voicePanel(userId, page, chr) {
   const cfg = userCfg(userId);
-  const idx = styles.findIndex((s) => s.id === cfg.speaker);
-  const pages = Math.max(1, Math.ceil(styles.length / PANEL_PAGE));
-  if (page == null) page = idx >= 0 ? Math.floor(idx / PANEL_PAGE) : 0;
+  const chars = charactersOf();
+  const cur = styles.find((s) => s.id === cfg.speaker);
+  if (chr == null) chr = Math.max(0, chars.findIndex((c) => c.name === cur?.chara));
+  chr = Math.min(Math.max(chr, 0), Math.max(chars.length - 1, 0));
+  const pages = Math.max(1, Math.ceil(chars.length / PANEL_PAGE));
+  if (page == null) page = Math.floor(chr / PANEL_PAGE);
   page = Math.min(Math.max(page, 0), pages - 1);
-  const cur = idx >= 0 ? styles[idx].label : `ID ${cfg.speaker}`;
   const embed = {
     color: 0x7c4dff,
     title: '🎤 音声設定',
     description: 'あなたの音声設定です。全号機の読み上げに、適用されます。\n\n'
-      + `**現在の話者:** ${cur}\n**速度:** ${cfg.speed}`,
-    footer: { text: '設定は、選んだ時点で保存されます' },
+      + `**現在の話者:** ${cur ? cur.label : `ID ${cfg.speaker}`}\n**速度:** ${cfg.speed}`,
+    footer: { text: '①話者を選ぶ → ②読み方を選ぶ。設定は、選んだ時点で保存されます' },
   };
   const rows = [];
-  if (styles.length) {
+  if (chars.length) {
+    const sel = chars[chr];
     rows.push(new ActionRowBuilder().addComponents(new StringSelectMenuBuilder()
-      .setCustomId(`vp:sel:${page}`).setPlaceholder('話者を選択')
-      .addOptions(styles.slice(page * PANEL_PAGE, (page + 1) * PANEL_PAGE).map((s) => ({
-        label: s.label.slice(0, 100), value: String(s.id), default: s.id === cfg.speaker,
+      .setCustomId(`vp:chr:${page}:${userId}:${chr}`).setPlaceholder('① 話者を選択')
+      .addOptions(chars.slice(page * PANEL_PAGE, (page + 1) * PANEL_PAGE).map((c, k) => ({
+        label: c.name.slice(0, 100), value: String(page * PANEL_PAGE + k),
+        description: `${c.styles.length}種類`, default: page * PANEL_PAGE + k === chr,
       })))));
-    rows.push(new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`vp:go:${page - 1}`).setLabel('前').setEmoji('◀️').setStyle(ButtonStyle.Secondary).setDisabled(page <= 0),
-      new ButtonBuilder().setCustomId('vp:page').setLabel(`${page + 1} / ${pages}`).setStyle(ButtonStyle.Secondary).setDisabled(true),
-      new ButtonBuilder().setCustomId(`vp:go:${page + 1}`).setLabel('次').setEmoji('▶️').setStyle(ButtonStyle.Secondary).setDisabled(page >= pages - 1),
-    ));
+    rows.push(new ActionRowBuilder().addComponents(new StringSelectMenuBuilder()
+      .setCustomId(`vp:sty:${page}:${userId}:${chr}`).setPlaceholder(`② ${sel.name} の読み方を選択`)
+      .addOptions(sel.styles.slice(0, 25).map((s) => ({
+        label: s.style.slice(0, 100), value: String(s.id), default: s.id === cfg.speaker,
+      })))));
+    if (pages > 1) {
+      rows.push(new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`vp:go:${page - 1}:${userId}:${chr}`).setLabel('前').setEmoji('◀️').setStyle(ButtonStyle.Secondary).setDisabled(page <= 0),
+        new ButtonBuilder().setCustomId('vp:page').setLabel(`${page + 1} / ${pages}`).setStyle(ButtonStyle.Secondary).setDisabled(true),
+        new ButtonBuilder().setCustomId(`vp:go:${page + 1}:${userId}:${chr}`).setLabel('次').setEmoji('▶️').setStyle(ButtonStyle.Secondary).setDisabled(page >= pages - 1),
+      ));
+    }
   } else {
     embed.description += '\n\n話者の一覧を、まだ取得できていません。少し待ってから、もう一度開いてください。';
   }
   rows.push(new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`vp:speed:${page}`).setLabel(`速度を変更 (現在: ${cfg.speed})`).setEmoji('🔊').setStyle(ButtonStyle.Primary)));
+    new ButtonBuilder().setCustomId(`vp:speed:${page}:${userId}:${chr}`).setLabel(`速度を変更 (現在: ${cfg.speed})`).setEmoji('🔊').setStyle(ButtonStyle.Primary)));
   return { embeds: [embed], components: rows };
 }
 
 async function handlePanel(i) {
-  const [, op, arg] = i.customId.split(':');
+  const [, op, arg, owner, chrArg] = i.customId.split(':');
+  if (owner && owner !== i.user.id) return i.reply({ content: 'これは、ほかの人の操作画面です。/voice で、自分の画面を開いてください。', flags: MessageFlags.Ephemeral });
   const page = Number(arg) || 0;
-  if (i.isStringSelectMenu() && op === 'sel') {
-    const id = Number(i.values[0]);
-    if (!styles.some((s) => s.id === id)) return i.update(voicePanel(i.user.id, page));
-    settings.users[i.user.id] = { ...userCfg(i.user.id), speaker: id };
-    save();
-    return i.update(voicePanel(i.user.id, page));
+  const chr = Number(chrArg) || 0;
+  const setSpeaker = (id) => { settings.users[i.user.id] = { ...userCfg(i.user.id), speaker: id }; save(); };
+  if (i.isStringSelectMenu() && op === 'chr') {
+    const n = Number(i.values[0]);
+    const c = charactersOf()[n];
+    // 読み方が1つだけの話者は、選んだ時点で設定する
+    if (c?.styles.length === 1) setSpeaker(c.styles[0].id);
+    return i.update(voicePanel(i.user.id, page, c ? n : chr));
   }
-  if (i.isButton() && op === 'go') return i.update(voicePanel(i.user.id, page));
+  if (i.isStringSelectMenu() && op === 'sty') {
+    const id = Number(i.values[0]);
+    if (styles.some((s) => s.id === id)) setSpeaker(id);
+    return i.update(voicePanel(i.user.id, page, chr));
+  }
+  if (i.isButton() && op === 'go') return i.update(voicePanel(i.user.id, page, chr));
   if (i.isButton() && op === 'speed') {
-    return i.showModal(new ModalBuilder().setCustomId(`vp:speedmodal:${page}`).setTitle('速度を変更')
+    return i.showModal(new ModalBuilder().setCustomId(`vp:speedmodal:${page}:${i.user.id}:${chr}`).setTitle('速度を変更')
       .addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder()
         .setCustomId('value').setLabel('速度 (0.5〜2.0)').setStyle(TextInputStyle.Short)
         .setValue(String(userCfg(i.user.id).speed)).setMinLength(1).setMaxLength(5).setRequired(true))));
@@ -444,7 +475,7 @@ async function handlePanel(i) {
     }
     settings.users[i.user.id] = { ...userCfg(i.user.id), speed: Math.round(v * 100) / 100 };
     save();
-    return i.update(voicePanel(i.user.id, page));
+    return i.update(voicePanel(i.user.id, page, chr));
   }
 }
 
@@ -494,7 +525,9 @@ async function handleInteraction(i, primary) {
   }
   if (i.customId?.startsWith('vp:')) return handlePanel(i);
   if (!i.isChatInputCommand() || !i.guild) return;
-  const reply =(content) => i.reply({ content, flags: MessageFlags.Ephemeral });
+  const reply = (content) => i.reply({ content, flags: MessageFlags.Ephemeral });
+  // public:true なら全員に見える。省略は、本人にだけ見える
+  const vis = i.options.getBoolean?.('public') ? undefined : MessageFlags.Ephemeral;
 
   switch (i.commandName) {
     case 'status': {
@@ -502,7 +535,7 @@ async function handleInteraction(i, primary) {
       embed.footer = { text: `v${APP_VERSION} / build ${BUILD_ID}` };
       embed.fields.push({ name: '入退出アナウンス', value: settings.guilds[i.guild.id]?.announce === false ? '⚪ オフ' : '🟢 オン' });
       embed.fields.push({ name: '外部連携', value: externalApi.isEnabled(i.guild.id) ? '🟢 オン' : '⚪ オフ' });
-      return i.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+      return i.reply({ embeds: [embed], flags: vis });
     }
     case 'announce': {
       const mode = i.options.getString('mode');
@@ -643,11 +676,11 @@ async function handleInteraction(i, primary) {
       findBot(i)?.guilds.get(i.guild.id)?.player.stop();
       return reply('スキップしました。');
     }
-    case 'help': return i.reply({ embeds: [helpEmbed()], flags: MessageFlags.Ephemeral });
-    case 'license': return i.reply({ embeds: [licenseEmbed()], flags: MessageFlags.Ephemeral });
+    case 'help': return i.reply({ embeds: [helpEmbed()], flags: vis });
+    case 'license': return i.reply({ embeds: [licenseEmbed()], flags: vis });
     case 'voice': {
       const id = i.options.getInteger('speaker');
-      if (id == null) return i.reply({ ...voicePanel(i.user.id), flags: MessageFlags.Ephemeral });
+      if (id == null) return i.reply({ ...voicePanel(i.user.id), flags: vis });
       settings.users[i.user.id] = { ...userCfg(i.user.id), speaker: id };
       save();
       const name = styles.find((s) => s.id === id)?.label ?? `ID ${id}`;
